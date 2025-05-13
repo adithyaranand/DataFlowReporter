@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:outlook365="http://www.mulesoft.org/schema/mule/outlook365" xmlns:email="http://www.mulesoft.org/schema/mule/email"
+	xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns:batch="http://www.mulesoft.org/schema/mule/batch" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:file="http://www.mulesoft.org/schema/mule/file" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/batch http://www.mulesoft.org/schema/mule/batch/current/mule-batch.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/email http://www.mulesoft.org/schema/mule/email/current/mule-email.xsd
+http://www.mulesoft.org/schema/mule/outlook365 http://www.mulesoft.org/schema/mule/outlook365/current/mule-outlook365.xsd">
+	<file:config name="File_Config" doc:name="File Config" doc:id="240fcd87-d9a9-44a4-83f6-c01215586519" />
+	<db:config name="Database_Config" doc:name="Database Config" doc:id="0d556bc0-e0af-4775-bfc1-9beff39bdcc8" >
+		<db:my-sql-connection host="localhost" port="3306" user="root" password="1234567890" database="EmployeeDB" />
+	</db:config>
+	<db:config name="Database_Config1" doc:name="Database Config" doc:id="aed4df4b-3914-4f99-a601-88c35b51a37f" >
+		<db:my-sql-connection host="localhost" port="3306" user="root" password="${db.password}" database="EmployeeDB" />
+	</db:config>
+	<email:smtp-config name="Email_SMTP" doc:name="Email SMTP" doc:id="5982fcec-8b4c-4f3c-9ad1-c94807be7438" >
+		<email:smtp-connection host="smtp.gmail.com" port="587" user="adithyranand@gmail.com" password="${smtp.password}" >
+			<email:properties >
+				<email:property key="mail.smtp.starttls.enable" value="true" />
+			</email:properties>
+		</email:smtp-connection>
+	</email:smtp-config>
+	<configuration-properties doc:name="Configuration properties" doc:id="0c808f4c-737f-4183-98a4-a9d4643cbdaa" file="secure.properties" />
+	<flow name="dataschedulerFlow" doc:id="3eee8c07-0837-4e0a-b644-788b79553174" initialState="started">
+		<scheduler doc:name="Scheduler" doc:id="af8c1086-dc4e-48ed-9b86-22dc609f47d1" >
+			<scheduling-strategy >
+				<fixed-frequency frequency="2" timeUnit="HOURS"/>
+			</scheduling-strategy>
+		</scheduler>
+		<file:read doc:name="Read" doc:id="d666d015-8136-4763-b073-7db1c5ec8de2" config-ref="File_Config" path="C:\Users\2364874\AnypointStudio\VivaVault-Salesforce\dbProject\employeeDetails.csv"/>
+		<ee:transform doc:name="Transform Message" doc:id="0cf8c05a-4255-4e65-8065-c617c4299c0c" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+var csvData = payload as Array {separator: ",", header: true}
+---
+csvData map (row) -> {
+  BatchNo: row.BatchNo default "1",
+  EmpId: row.EmpId as Number,
+  EmpName: row.EmpName,
+  EmpAddress: row.EmpAddress,
+  EmpPhone: row.EmpPhone,
+  EmpCity: row.EmpCity,
+  EmpPincode: row.EmpPincode as Number,
+  EmpCountry: row.EmpCountry
+}
+]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<batch:job jobName="dataschedulerBatch_Job" doc:id="0329cc42-06ab-4008-afa6-f3cee11f3f50" blockSize="5">
+			<batch:process-records >
+				<batch:step name="Batch_Step" doc:id="a622ad54-1a32-43df-a64b-a1065c727135" >
+					<logger level="INFO" doc:name="Logger" doc:id="0a9696ab-9344-4be4-bff4-415a7e447144" message="#['Payload before Insert: ' ++ write(payload, &quot;application/json&quot;)]"/>
+					<db:insert doc:name="Insert" doc:id="ea8757ed-19af-474f-b341-f2f5167a4595" config-ref="Database_Config1">
+						<db:sql ><![CDATA[INSERT INTO Employee (BatchNo, EmpId, EmpName, EmpAddress, EmpPhone, EmpCity, EmpPincode, EmpCountry)
+VALUES (:BatchNo, :EmpId, :EmpName, :EmpAddress, :EmpPhone, :EmpCity, :EmpPincode, :EmpCountry);
+]]></db:sql>
+						<db:input-parameters ><![CDATA[#[%dw 2.0
+output application/json
+---
+{
+  BatchNo: payload.BatchNo,
+  EmpId: payload.EmpId,
+  EmpName: payload.EmpName,
+  EmpAddress: payload.EmpAddress,
+  EmpPhone: payload.EmpPhone,
+  EmpCity: payload.EmpCity,
+  EmpPincode: payload.EmpPincode,
+  EmpCountry: payload.EmpCountry
+}]]]></db:input-parameters>
+					</db:insert>
+				</batch:step>
+			</batch:process-records>
+			<batch:on-complete >
+				<ee:transform doc:name="Transform Message" doc:id="439e14a4-f6cf-47cd-b023-4ab6d7bdeaf1">
+							<ee:message>
+								<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+  batchProcessed: payload.totalRecords default 0,
+  successCount: payload.successfulRecords default 0,
+  failedCount: payload.failedRecords default 0
+}
+]]></ee:set-payload>
+							</ee:message>
+						</ee:transform>
+				<logger level="INFO" doc:name="Logger" doc:id="3ed18cff-8111-4870-b910-42c35850ed92" message="#['Successful Inserts: ' ++ (vars.successCount default 0) ++ ', Failed Records: ' ++ (vars.failedCount default 0)]"/>
+				<set-variable value="#[payload.batchProcessed]" doc:name="Set Variable" doc:id="4ced78c1-782d-4093-ba27-d7c41f182108" variableName="totalProcessed"/>
+				<set-variable value="#[payload.successCount]" doc:name="Set Variable" doc:id="417600c4-4b9a-44cd-ae60-6ad821ad24f7" variableName="successCount"/>
+				<set-variable value="#[payload.failedCount]" doc:name="Set Variable" doc:id="650e4acf-3750-4b08-86cc-6df3a06bd729" variableName="failedCount"/>
+				<ee:transform doc:name="Transform Message" doc:id="bcc41482-9eb5-449b-a5aa-727884649f0f">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+var total = vars.totalProcessed default 0
+var success = vars.successCount default 0
+var failed = vars.failedCount default 0
+---
+{
+  subject: "MuleSoft Project Report",
+  to: ["adithyranand@gmail.com"],
+  from: "adithyranand@gmail.com",
+  body: "<html><body>" ++
+      "<h2>MuleSoft Batch Job Report</h2>" ++
+      "<p><strong>Total Records Processed:</strong> " ++ total as String ++ "</p>" ++
+      "<p><strong>Successful Inserts:</strong> " ++ success as String ++ "</p>" ++
+      "<p><strong>Failed Records:</strong> " ++ failed as String ++ "</p>" ++
+      "<p>See logs for failure details.</p>" ++
+      "</body></html>"
+}
+]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+				<email:send doc:name="Send" doc:id="248b6a1d-b744-40f4-b3eb-178311805712" config-ref="Email_SMTP" toAddresses="#[payload.to]" subject="#[payload.subject]" fromAddress="adithyranand@gmail.com">
+					<email:body contentType="text/html">
+						<email:content ><![CDATA[#[payload.body]]]></email:content>
+					</email:body>
+				</email:send>
+			</batch:on-complete>
+		</batch:job>
+	</flow>
+</mule>
